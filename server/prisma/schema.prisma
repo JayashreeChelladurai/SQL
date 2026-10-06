@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model AdminUser {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+}
+
+model Assessment {
+  id               String           @id @default(uuid())
+  title            String
+  description      String           @default("")
+  code             String           @unique
+  durationMinutes  Int              @default(60)
+  startTime        DateTime?
+  endTime          DateTime?
+  shuffleQuestions Boolean          @default(true)
+  requireSeb       Boolean          @default(true) // SEB Mandatory by default
+  sebQuitPassword  String           @default("exit123")
+  isReviewUnlocked Boolean          @default(false)
+  reviewUnlockTime DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  sections         Section[]
+  questions        Question[]
+  attempts         StudentAttempt[]
+}
+
+model Section {
+  id           String     @id @default(uuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  title        String
+  description  String     @default("")
+  order        Int        @default(0)
+  questions    Question[]
+}
+
+model Question {
+  id               String       @id @default(uuid())
+  assessmentId     String
+  assessment       Assessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  sectionId        String?
+  section          Section?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  title            String
+  description      String       // Markdown problem text + schema overview
+  difficulty       String       @default("MEDIUM") // EASY, MEDIUM, HARD
+  marks            Float        @default(10.0)
+  negativeMarks    Float        @default(0.0)
+  order            Int          @default(0)
+  
+  // SQL specific configurations
+  schemaDdl        String       // CREATE TABLE statements
+  starterCode      String       @default("-- Write your SQL query below\nSELECT \nFROM \n")
+  solutionSql      String       // Reference canonical SQL solution query
+  orderSensitive   Boolean      @default(false)
+  explanation      String       @default("")
+
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  testCases        TestCase[]
+  submissions      Submission[]
+}
+
+model TestCase {
+  id             String   @id @default(uuid())
+  questionId     String
+  question       Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  title          String   @default("Test Case")
+  seedData       String   // INSERT INTO ... statements
+  expectedOutput String   @default("{}") // JSON: { columns: string[], rows: any[][], rowCount: number }
+  isPublic       Boolean  @default(true) // true = Sample visible to candidate, false = Hidden evaluation case
+  orderSensitive Boolean? // If null, inherits question.orderSensitive
+  weight         Float    @default(1.0)
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+}
+
+model StudentAttempt {
+  id               String       @id @default(uuid())
+  assessmentId     String
+  assessment       Assessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  rollNo           String
+  studentName      String
+  status           String       @default("IN_PROGRESS") // IN_PROGRESS, SUBMITTED, TIME_EXPIRED
+  startedAt        DateTime     @default(now())
+  submittedAt      DateTime?
+  remainingSeconds Int          @default(3600)
+  lastHeartbeat    DateTime     @default(now())
+  questionOrder    String       @default("[]") // JSON array of question IDs
+  flaggedQuestions String       @default("[]") // JSON array of marked question IDs
+  drafts           String       @default("{}") // JSON map: { questionId: sqlCode }
+  violationCount   Int          @default(0)
+  ipAddress        String?
+  deviceInfo       String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  violations       Violation[]
+  submissions      Submission[]
+  queryLogs        QueryLog[]
+
+  @@unique([assessmentId, rollNo])
+}
+
+model Violation {
+  id            String         @id @default(uuid())
+  attemptId     String
+  attempt       StudentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  violationType String         // FULLSCREEN_EXIT, TAB_SWITCH, FOCUS_LOSS, SEB_TAMPER
+  details       String?
+  ipAddress     String?
+  timestamp     DateTime       @default(now())
+  resolved      Boolean        @default(false)
+  resolvedAt    DateTime?
+}
+
+model Submission {
+  id              String         @id @default(uuid())
+  attemptId       String
+  attempt         StudentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId      String
+  question        Question       @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  code            String         // Candidate submitted SQL code
+  score           Float          @default(0)
+  maxScore        Float          @default(10)
+  passedTestCases Int            @default(0)
+  totalTestCases  Int            @default(0)
+  status          String         @default("SUBMITTED") // ACCEPTED, WRONG_ANSWER, SQL_SYNTAX_ERROR, EXECUTION_TIMEOUT
+  testCaseResults String         @default("[]") // Detailed JSON results per testcase
+  submittedAt     DateTime       @default(now())
+}
+
+model QueryLog {
+  id              String         @id @default(uuid())
+  attemptId       String
+  attempt         StudentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId      String
+  query           String         // The exact SQL query submitted by the student
+  actionType      String         @default("SUBMIT") // "RUN" or "SUBMIT"
+  score           Float          @default(0)
+  maxScore        Float          @default(10)
+  passedTestCases Int            @default(0)
+  totalTestCases  Int            @default(0)
+  status          String         // ACCEPTED, WRONG_ANSWER, SQL_SYNTAX_ERROR
+  executionTimeMs Float          @default(0)
+  createdAt       DateTime       @default(now())
+}
